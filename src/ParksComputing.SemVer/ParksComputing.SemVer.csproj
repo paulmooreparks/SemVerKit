@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Library implementation for ParksComputing.SemVer. The parser,
+    comparator, and renderer are written in Overt (SemVer.ov); this
+    csproj pulls in Overt.Build via PackageReference so `dotnet build`
+    transpiles Overt to C# before Csc runs, alongside any .cs files
+    in this project.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ParksComputing.SemVer</RootNamespace>
+    <AssemblyName>ParksComputing.SemVer</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>ParksComputing.SemVer</PackageId>
+    <Description>SemVer 2.0.0 parser, comparator, and renderer. Typed errors, refinement-typed numeric segments, exhaustive match on prerelease-identifier kinds. Implemented in Overt.</Description>
+    <PackageTags>semver;version;parser;overt</PackageTags>
+    <PackageProjectUrl>https://github.com/paulmooreparks/SemVerKit</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/paulmooreparks/SemVerKit</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The floating version range pulls the latest dev build while Overt
+         is in the 0.x.y channel. Pin explicitly when cutting stable releases. -->
+    <PackageReference Include="Overt.Build" Version="0.1.0-*" />
+  </ItemGroup>
+
+</Project>

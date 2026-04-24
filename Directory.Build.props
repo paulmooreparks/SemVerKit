@@ -1,0 +1,34 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsAsErrors />
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <NeutralLanguage>en-US</NeutralLanguage>
+  </PropertyGroup>
+
+  <!-- Version sourced from the repo-root VERSION file (MAJOR.MINOR;
+       PATCH is always ".0", the channel disambiguates via the prerelease
+       suffix passed to `dotnet pack`). -->
+  <PropertyGroup>
+    <SemVerKitVersionFile>$(MSBuildThisFileDirectory)VERSION</SemVerKitVersionFile>
+    <SemVerKitVersionBase Condition="Exists('$(SemVerKitVersionFile)')">$([System.IO.File]::ReadAllText('$(SemVerKitVersionFile)').Trim())</SemVerKitVersionBase>
+    <VersionPrefix Condition="'$(SemVerKitVersionBase)' != ''">$(SemVerKitVersionBase).0</VersionPrefix>
+  </PropertyGroup>
+
+  <!-- Assembly metadata stamped on every DLL and EXE. -->
+  <PropertyGroup>
+    <Product>SemVerKit</Product>
+    <Company>Paul Moore Parks</Company>
+    <Authors>Paul Moore Parks</Authors>
+    <Copyright>Copyright (c) Paul Moore Parks</Copyright>
+    <AssemblyVersion Condition="'$(SemVerKitVersionBase)' != ''">$(SemVerKitVersionBase).0.0</AssemblyVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build, test, format
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore SemVerKit.sln
+
+      - name: Build
+        run: dotnet build SemVerKit.sln --configuration Release --no-restore --nologo
+
+      - name: Test
+        run: dotnet test SemVerKit.sln --configuration Release --no-build --nologo
+
+      - name: Verify whitespace formatting
+        run: dotnet format whitespace SemVerKit.sln --verify-no-changes --no-restore

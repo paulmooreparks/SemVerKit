@@ -1,0 +1,127 @@
+module semver
+
+// SemVer 2.0.0 parser and renderer. First round: the numeric core.
+// Prerelease and build-metadata segments land in the next iteration.
+//
+// Why this is written in Overt: SemVer is three non-negative integers
+// under domain constraints (no leading zeros, monotonic comparison,
+// exhaustive error cases). Refinement types encode the field
+// invariants; a closed `ParseError` enum names each failure mode
+// once and is exhaustively handled by `describe`.
+
+// ---------------------------------------------------------------- types
+
+// A SemVer numeric segment: non-negative and, on parse, must carry
+// no leading zeros (except for the literal "0"). The leading-zero
+// check lives in `parse_numeric_segment` because it's a property of
+// the source text, not the value.
+type NumericSegment = Int where 0 <= self
+
+record Version {
+    major: NumericSegment,
+    minor: NumericSegment,
+    patch: NumericSegment,
+}
+
+@derive(Debug)
+enum ParseError {
+    Empty,
+    MissingMinor,
+    MissingPatch,
+    TooManySegments  { got: Int },
+    NonNumericSegment { field: String, got: String },
+    LeadingZeroSegment { field: String, got: String },
+    EmptySegment      { field: String },
+}
+
+// ---------------------------------------------------------------- parsing
+
+// Parse one segment of a numeric version component. Every failure mode
+// gets a distinct ParseError variant so `describe` can point at the
+// exact segment and show what was seen.
+fn parse_numeric_segment(field: String, raw: String) -> Result<NumericSegment, ParseError> {
+    if length(raw) == 0 {
+        Err(ParseError.EmptySegment { field = field })
+    } else if length(raw) > 1 && str_starts_with(s = raw, prefix = "0") {
+        Err(ParseError.LeadingZeroSegment { field = field, got = raw })
+    } else if !str_is_digits(raw) {
+        Err(ParseError.NonNumericSegment { field = field, got = raw })
+    } else {
+        Ok(str_to_int(raw))
+    }
+}
+
+fn parse(input: String) -> Result<Version, ParseError> {
+    if length(input) == 0 {
+        Err(ParseError.Empty)
+    } else {
+        let segments: List<String> = str_split(s = input, sep = ".")
+        let count: Int = size(segments)
+        if count < 3 {
+            if count < 2 {
+                Err(ParseError.MissingMinor)
+            } else {
+                Err(ParseError.MissingPatch)
+            }
+        } else if count > 3 {
+            Err(ParseError.TooManySegments { got = count })
+        } else {
+            let major: NumericSegment = parse_numeric_segment(field = "major", raw = list_at(list = segments, index = 0))?
+            let minor: NumericSegment = parse_numeric_segment(field = "minor", raw = list_at(list = segments, index = 1))?
+            let patch: NumericSegment = parse_numeric_segment(field = "patch", raw = list_at(list = segments, index = 2))?
+            Ok(Version { major = major, minor = minor, patch = patch })
+        }
+    }
+}
+
+// ---------------------------------------------------------------- rendering
+
+fn display(v: Version) -> String {
+    "${int_to_str(v.major)}.${int_to_str(v.minor)}.${int_to_str(v.patch)}"
+}
+
+// ---------------------------------------------------------------- errors
+
+fn describe(e: ParseError) -> String {
+    match e {
+        ParseError.Empty =>
+            "version string is empty",
+        ParseError.MissingMinor =>
+            "version is missing the minor segment (expected `major.minor.patch`)",
+        ParseError.MissingPatch =>
+            "version is missing the patch segment (expected `major.minor.patch`)",
+        ParseError.TooManySegments { got = n } =>
+            "version has ${int_to_str(n)} dot-separated segments; SemVer allows exactly three (major.minor.patch)",
+        ParseError.NonNumericSegment { field = f, got = g } =>
+            "${f} segment '${g}' is not a non-negative integer",
+        ParseError.LeadingZeroSegment { field = f, got = g } =>
+            "${f} segment '${g}' has a leading zero; SemVer numeric segments must not be zero-padded",
+        ParseError.EmptySegment { field = f } =>
+            "${f} segment is empty",
+    }
+}
+
+// ---------------------------------------------------------------- stdlib gaps
+
+// The Overt stdlib doesn't yet ship these helpers for String and
+// List<T>. Implemented here as externs bound to a small internal
+// helper class; when Overt stdlib catches up, these lines collapse.
+// `length` and `size` come from the Overt prelude; not externed here.
+
+extern "csharp" fn str_starts_with(s: String, prefix: String) -> Bool
+    binds "ParksComputing.SemVer.Strings.StartsWith"
+
+extern "csharp" fn str_is_digits(s: String) -> Bool
+    binds "ParksComputing.SemVer.Strings.IsDigits"
+
+extern "csharp" fn str_to_int(s: String) -> Int
+    binds "ParksComputing.SemVer.Strings.ToInt"
+
+extern "csharp" fn str_split(s: String, sep: String) -> List<String>
+    binds "ParksComputing.SemVer.Strings.Split"
+
+extern "csharp" fn int_to_str(n: Int) -> String
+    binds "ParksComputing.SemVer.Strings.IntToStr"
+
+extern "csharp" fn list_at(list: List<String>, index: Int) -> String
+    binds "ParksComputing.SemVer.Strings.ListAt"
