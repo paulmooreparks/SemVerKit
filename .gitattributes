@@ -1,0 +1,10 @@
+# Normalize text files to LF on commit. Windows working trees still see
+# CRLF after checkout when `core.autocrlf=true`, but the canonical
+# in-repo form is LF — which is what `dotnet format whitespace` expects
+# on the Linux CI runner.
+* text=auto eol=lf
+
+# Binary files, untouched.
+*.png binary
+*.ico binary
+*.nupkg binary
