@@ -1,0 +1,31 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cs,ov,csproj,props,targets,xml}]
+indent_size = 4
+
+[*.{json,yml,yaml,md}]
+indent_size = 2
+
+[*.sln]
+indent_size = 4
+end_of_line = lf
+
+# C# style: K&R braces (opening brace on the same line as the declaration).
+# Matches the in-repo source. Without this setting, `dotnet format whitespace`
+# defaults to Allman on the Linux CI runner and rewrites every `{` onto its
+# own line, which fails `--verify-no-changes`.
+[*.cs]
+csharp_new_line_before_open_brace = none
+csharp_new_line_before_else = false
+csharp_new_line_before_catch = false
+csharp_new_line_before_finally = false
+csharp_new_line_before_members_in_object_initializers = false
+csharp_new_line_before_members_in_anonymous_types = false
+csharp_new_line_between_query_expression_clauses = true
