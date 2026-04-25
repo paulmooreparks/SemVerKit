@@ -1,4 +1,4 @@
-module semver
+module ParksComputing.SemVer
 
 // SemVer 2.0.0 parser and renderer. First round: the numeric core.
 // Prerelease and build-metadata segments land in the next iteration.

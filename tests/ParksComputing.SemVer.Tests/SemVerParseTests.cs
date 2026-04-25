@@ -1,7 +1,12 @@
 using Overt.Runtime;
-using Overt.Generated.Semver;
 using Xunit;
-using Version = Overt.Generated.Semver.Version;
+
+// `Version` collides with `System.Version` under ImplicitUsings;
+// alias the one from our own namespace to disambiguate. The other
+// types (Module, ParseError, ParseError_*) are visible without a
+// using directive because the test namespace is a child of the
+// library namespace.
+using Version = ParksComputing.SemVer.Version;
 
 namespace ParksComputing.SemVer.Tests;
 
