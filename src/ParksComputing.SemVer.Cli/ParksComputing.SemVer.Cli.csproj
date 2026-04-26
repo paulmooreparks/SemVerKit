@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    `ovsemver` CLI: a thin wrapper over ParksComputing.SemVer for shell
+    use. Subcommands follow standard Unix conventions — non-zero exit on
+    invalid input, machine-readable single-line output on stdout, human-
+    readable error explanations on stderr.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ParksComputing.SemVer.Cli</RootNamespace>
+    <AssemblyName>ovsemver</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>ovsemver</ToolCommandName>
+    <PackageId>ParksComputing.SemVer.Cli</PackageId>
+    <Description>Command-line front end for ParksComputing.SemVer: parse, compare, and bump semantic-version strings from the shell.</Description>
+    <PackageTags>semver;version;cli;tool;overt</PackageTags>
+    <PackageProjectUrl>https://github.com/paulmooreparks/SemVerKit</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/paulmooreparks/SemVerKit</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ParksComputing.SemVer\ParksComputing.SemVer.csproj" />
+  </ItemGroup>
+
+  <!-- The CLI is itself authored in Overt (Program.ov). Overt.Build
+       transpiles it to C# at build time and, because OutputType is Exe,
+       synthesizes a tiny `static int Main(string[])` wrapper that calls
+       the Overt module's `main(argv)`. -->
+  <ItemGroup>
+    <PackageReference Include="Overt.Build" Version="0.1.0-*" />
+  </ItemGroup>
+
+  <!-- Make the SemVer library's Overt source visible to this project's
+       resolver so Program.ov can `use ParksComputing.SemVer.{...}`
+       natively, instead of hand-binding each function as an `extern
+       "csharp" fn ... binds "...Module.X"`. The library project's own
+       build still emits the C#; we just need the symbols here. -->
+  <ItemGroup>
+    <OvertImportSource Include="..\ParksComputing.SemVer\SemVer.ov" />
+  </ItemGroup>
+
+</Project>

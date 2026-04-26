@@ -1,0 +1,161 @@
+module ParksComputing.SemVer.Cli
+
+// `ovsemver` — the SemVer Kit command-line front end. Authored entirely
+// in Overt; Overt.Build picks up the `OutputType=Exe` consumer csproj
+// and synthesizes a `Main(string[])` wrapper that calls `main(argv)` here.
+//
+// The library is a sibling project. Listing its `.ov` source as an
+// `<OvertImportSource>` in this csproj surfaces the library's symbols
+// to this project's resolver, so the import below resolves natively —
+// no hand-binding through `extern "csharp" fn ... binds "...Module.X"`.
+
+use ParksComputing.SemVer.{
+    Version,
+    ParseError,
+    parse,
+    display,
+    describe,
+    less_than,
+    equal_to,
+    bump_major,
+    bump_minor,
+    bump_patch,
+}
+
+// ---------------------------------------------------------------- subcommands
+
+// Each subcommand returns its exit code directly. Early-return (via
+// `return n`) handles the "report and exit" cases without forcing the
+// surrounding function to thread a `Result<Int, Int>` two-channel
+// pattern. The match arms inside use `return` to bail with a chosen
+// exit code while the success arm continues.
+
+fn run_parse(argv: List<String>) !{io} -> Int {
+    if size(argv) != 2 {
+        _ = eprintln("usage: ovsemver parse <version>")
+        return 2
+    }
+    let raw: String = List.at(list = argv, index = 1)
+    match parse(input = raw) {
+        Ok(v) => {
+            _ = println(display(v))
+            0
+        },
+        Err(e) => {
+            _ = eprintln("ovsemver parse: ${describe(e)}")
+            1
+        },
+    }
+}
+
+fn run_compare(argv: List<String>) !{io} -> Int {
+    if size(argv) != 3 {
+        _ = eprintln("usage: ovsemver compare <version-a> <version-b>")
+        return 2
+    }
+    let a: Version = match parse(input = List.at(list = argv, index = 1)) {
+        Ok(v) => v,
+        Err(e) => {
+            _ = eprintln("ovsemver: left: ${describe(e)}")
+            return 1
+        },
+    }
+    let b: Version = match parse(input = List.at(list = argv, index = 2)) {
+        Ok(v) => v,
+        Err(e) => {
+            _ = eprintln("ovsemver: right: ${describe(e)}")
+            return 1
+        },
+    }
+    // Print one of `<` / `=` / `>` on stdout AND return that as the
+    // exit code (cmp-style: 1 / 0 / 2). The shell can branch on the
+    // exit code without parsing stdout.
+    if equal_to(a = a, b = b) {
+        _ = println("=")
+        0
+    } else if less_than(a = a, b = b) {
+        _ = println("<")
+        1
+    } else {
+        _ = println(">")
+        2
+    }
+}
+
+fn run_bump(argv: List<String>) !{io} -> Int {
+    if size(argv) != 3 {
+        _ = eprintln("usage: ovsemver bump <major|minor|patch> <version>")
+        return 2
+    }
+    let component: String = List.at(list = argv, index = 1)
+    let v: Version = match parse(input = List.at(list = argv, index = 2)) {
+        Ok(v) => v,
+        Err(e) => {
+            _ = eprintln("ovsemver: version: ${describe(e)}")
+            return 1
+        },
+    }
+    if component == "major" {
+        _ = println(display(bump_major(v)))
+        0
+    } else if component == "minor" {
+        _ = println(display(bump_minor(v)))
+        0
+    } else if component == "patch" {
+        _ = println(display(bump_patch(v)))
+        0
+    } else {
+        _ = eprintln("ovsemver bump: unknown component '${component}'; expected major | minor | patch")
+        2
+    }
+}
+
+fn run_help() !{io} -> Int {
+    _ = println("usage: ovsemver <command> [args]")
+    _ = println("")
+    _ = println("commands:")
+    _ = println("  parse    <version>                       validate; echo on stdout, errors on stderr")
+    _ = println("  compare  <version-a> <version-b>         print `<` `=` `>`; exit 1 / 0 / 2")
+    _ = println("  bump     <major|minor|patch> <version>   print bumped version")
+    _ = println("")
+    _ = println("flags:")
+    _ = println("  --help, -h                              print this message")
+    _ = println("  --version                               print tool version")
+    0
+}
+
+fn run_version() !{io} -> Int {
+    // Hardcoded for now — the C# CLI read the assembly attribute, but
+    // bridging that into Overt is more plumbing than it's worth for an
+    // MVP. The release pipeline stamps the package version into the
+    // nupkg metadata, which is what users see at `dotnet tool install`
+    // time.
+    _ = println("ovsemver 0.1.0-dev")
+    0
+}
+
+// ---------------------------------------------------------------- entry point
+
+fn main(argv: List<String>) !{io} -> Int {
+    if size(argv) == 0 {
+        _ = eprintln("usage: ovsemver <parse|compare|bump> [args]")
+        _ = eprintln("       ovsemver --help")
+        return 2
+    }
+    let cmd: String = List.at(list = argv, index = 0)
+    if cmd == "parse" {
+        run_parse(argv = argv)
+    } else if cmd == "compare" {
+        run_compare(argv = argv)
+    } else if cmd == "bump" {
+        run_bump(argv = argv)
+    } else if cmd == "--help" || cmd == "-h" {
+        run_help()
+    } else if cmd == "--version" {
+        run_version()
+    } else {
+        _ = eprintln("usage: ovsemver <parse|compare|bump> [args]")
+        _ = eprintln("       ovsemver --help")
+        2
+    }
+}
