@@ -158,7 +158,7 @@ public class SemVerParseTests {
         var ids = ok.Value.prerelease.Items;
         Assert.Equal(3, ids.Length);
         Assert.Equal("alpha", Assert.IsType<PrereleaseId_Alphanumeric>(ids[0]).text);
-        Assert.Equal(1,       Assert.IsType<PrereleaseId_Numeric>(ids[1]).value);
+        Assert.Equal(1, Assert.IsType<PrereleaseId_Numeric>(ids[1]).value);
         Assert.Equal("beta-rc", Assert.IsType<PrereleaseId_Alphanumeric>(ids[2]).text);
     }
 

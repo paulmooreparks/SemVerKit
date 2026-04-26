@@ -44,11 +44,11 @@ public class OvsemverCliTests {
     // ---------- compare ----------------------------------------------
 
     [Theory]
-    [InlineData("1.0.0-alpha", "1.0.0",       "<", 1)]
-    [InlineData("1.0.0",       "1.0.0",       "=", 0)]
-    [InlineData("2.0.0",       "1.99.99",     ">", 2)]
-    [InlineData("1.0.0+a",     "1.0.0+b",     "=", 0)]   // build metadata ignored
-    [InlineData("1.0.0-beta.2","1.0.0-beta.11","<", 1)]  // numeric prerelease compare
+    [InlineData("1.0.0-alpha", "1.0.0", "<", 1)]
+    [InlineData("1.0.0", "1.0.0", "=", 0)]
+    [InlineData("2.0.0", "1.99.99", ">", 2)]
+    [InlineData("1.0.0+a", "1.0.0+b", "=", 0)]   // build metadata ignored
+    [InlineData("1.0.0-beta.2", "1.0.0-beta.11", "<", 1)]  // numeric prerelease compare
     public void Compare_PrintsGlyphAndCmpStyleExitCode(
         string a, string b, string glyph, int expectedExit) {
         var (exit, stdout, stderr) = Run("compare", a, b);
@@ -76,8 +76,8 @@ public class OvsemverCliTests {
 
     [Theory]
     [InlineData("major", "1.2.3-rc.1+build.7", "2.0.0")]
-    [InlineData("minor", "1.2.3-rc.1",         "1.3.0")]
-    [InlineData("patch", "1.2.3+build.42",     "1.2.4")]
+    [InlineData("minor", "1.2.3-rc.1", "1.3.0")]
+    [InlineData("patch", "1.2.3+build.42", "1.2.4")]
     public void Bump_PrintsBumpedVersion(string component, string input, string expected) {
         var (exit, stdout, stderr) = Run("bump", component, input);
         Assert.Equal(0, exit);
@@ -133,8 +133,7 @@ public class OvsemverCliTests {
     private static readonly Lazy<string> OvsemverDll = new(LocateOvsemverDll);
 
     private static (int exit, string stdout, string stderr) Run(params string[] args) {
-        var psi = new ProcessStartInfo("dotnet")
-        {
+        var psi = new ProcessStartInfo("dotnet") {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
