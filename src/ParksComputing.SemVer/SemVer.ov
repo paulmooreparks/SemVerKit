@@ -1,26 +1,53 @@
 module ParksComputing.SemVer
 
-// SemVer 2.0.0 parser and renderer. First round: the numeric core.
-// Prerelease and build-metadata segments land in the next iteration.
+// SemVer 2.0.0 parser, renderer, comparator, and bump operations:
+// numeric core, optional prerelease (after `-`), optional build
+// metadata (after `+`).
 //
-// Why this is written in Overt: SemVer is three non-negative integers
-// under domain constraints (no leading zeros, monotonic comparison,
-// exhaustive error cases). Refinement types encode the field
-// invariants; a closed `ParseError` enum names each failure mode
-// once and is exhaustively handled by `describe`.
+// Why this is written in Overt: SemVer is a small grammar with sharp
+// invariants (no leading zeros on numeric identifiers, alphanumeric
+// identifier character set, identifiers must not be empty). Refinement
+// types encode the field invariants; a closed `ParseError` enum names
+// each failure mode once and is exhaustively handled by `describe`.
+//
+// Why no project-local C# helpers: every BCL operation this parser
+// needs is reachable through `extern "csharp" use "..."` bulk-imports
+// or the Overt prelude's `String` / `List` namespaces. The parser is
+// authored entirely in Overt source with no companion .cs file.
+
+extern "csharp" use "System.String" as str
+extern "csharp" use "System.Int32" as int32
 
 // ---------------------------------------------------------------- types
 
-// A SemVer numeric segment: non-negative and, on parse, must carry
-// no leading zeros (except for the literal "0"). The leading-zero
-// check lives in `parse_numeric_segment` because it's a property of
-// the source text, not the value.
+// A SemVer numeric segment: non-negative and, on parse, must carry no
+// leading zeros (except for the literal "0"). The leading-zero check
+// lives in the parser because it's a property of the source text, not
+// the value.
 type NumericSegment = Int where 0 <= self
+
+// A prerelease identifier is either pure-digit (numeric, with strict
+// no-leading-zero rule) or alphanumeric (any [0-9A-Za-z-]+ that is not
+// pure-digit; leading zeros are fine inside an alphanumeric identifier
+// because it's an opaque label, not a number).
+@derive(Debug)
+enum PrereleaseId {
+    Numeric { value: NumericSegment },
+    Alphanumeric { text: String },
+}
+
+// Three-way comparison result. Returned by `compare`; consumers fold
+// to <, ==, > as needed. Distinct from Bool to keep call sites readable
+// (a Bool return would force readers to remember the polarity).
+@derive(Debug)
+enum Ordering { Less, Equal, Greater }
 
 record Version {
     major: NumericSegment,
     minor: NumericSegment,
     patch: NumericSegment,
+    prerelease: List<PrereleaseId>,
+    build: List<String>,
 }
 
 @derive(Debug)
@@ -32,22 +59,159 @@ enum ParseError {
     NonNumericSegment { field: String, got: String },
     LeadingZeroSegment { field: String, got: String },
     EmptySegment      { field: String },
+    EmptyPrerelease,
+    EmptyPrereleaseSegment,
+    InvalidPrereleaseChar { segment: String },
+    LeadingZeroPrereleaseSegment { segment: String },
+    EmptyBuild,
+    EmptyBuildSegment,
+    InvalidBuildChar { segment: String },
+    // BCL Int32.Parse can still fail after we've digit-validated the
+    // string (overflow on 10+ digits). The convention layer surfaces
+    // those as Err in our Result<NumericSegment, ParseError> so callers
+    // see a single error type.
+    BclParseFailure { field: String, got: String },
+}
+
+// ---------------------------------------------------------------- ASCII predicates
+
+// SemVer's grammar is strictly ASCII; the prelude's `String.code_at`
+// gives us the UTF-16 code unit at an index, which is enough to encode
+// these predicates without per-character FFI bindings.
+
+fn is_ascii_digit_at(s: String, i: Int) -> Bool {
+    let c: Int = s.code_at(index = i)
+    48 <= c && c <= 57   // '0' = 48, '9' = 57
+}
+
+fn is_alnum_dash_at(s: String, i: Int) -> Bool {
+    let c: Int = s.code_at(index = i)
+    let is_digit: Bool = 48 <= c && c <= 57
+    let is_upper: Bool = 65 <= c && c <= 90
+    let is_lower: Bool = 97 <= c && c <= 122
+    let is_dash: Bool = c == 45
+    is_digit || is_upper || is_lower || is_dash
+}
+
+fn all_ascii_digits_from(s: String, i: Int, n: Int) -> Bool {
+    if i >= n {
+        true
+    } else if !is_ascii_digit_at(s = s, i = i) {
+        false
+    } else {
+        all_ascii_digits_from(s = s, i = i + 1, n = n)
+    }
+}
+
+fn all_alnum_dash_from(s: String, i: Int, n: Int) -> Bool {
+    if i >= n {
+        true
+    } else if !is_alnum_dash_at(s = s, i = i) {
+        false
+    } else {
+        all_alnum_dash_from(s = s, i = i + 1, n = n)
+    }
+}
+
+fn is_ascii_digits(s: String) -> Bool {
+    let n: Int = length(s)
+    if n == 0 { false } else { all_ascii_digits_from(s = s, i = 0, n = n) }
+}
+
+fn is_alnum_dash(s: String) -> Bool {
+    let n: Int = length(s)
+    if n == 0 { false } else { all_alnum_dash_from(s = s, i = 0, n = n) }
+}
+
+// ---------------------------------------------------------------- BCL bridges
+
+// Two thin wrappers that reframe the bulk-imported instance methods to
+// the convention the parser uses (positional substring with end-index
+// rather than length, and a fallible parse that lifts BCL exceptions
+// into a typed ParseError).
+
+fn substr(s: String, start: Int, end: Int) -> String {
+    s.substring_int_int(start_index = start, length_arg = end - start)
+}
+
+// `int32.parse` returns `Result<Int, IoError>` (the BindGenerator
+// convention catches FormatException / OverflowException as Err) but
+// carries no effect row — it doesn't do I/O. The Result wrap is the
+// only failure channel callers need to handle, via `?` or `match`.
+
+fn parse_int_strict(field: String, raw: String) -> Result<NumericSegment, ParseError> {
+    // Even though we've already digit-validated, Int32.Parse can still
+    // fail on overflow; the impure-namespace convention surfaces that as
+    // Result<Int, IoError>. Lift the failure into a ParseError so callers
+    // see one error type, not two.
+    match int32.parse(s = raw) {
+        Ok(n)  => Ok(n),
+        Err(_) => Err(ParseError.BclParseFailure { field = field, got = raw }),
+    }
 }
 
 // ---------------------------------------------------------------- parsing
 
-// Parse one segment of a numeric version component. Every failure mode
-// gets a distinct ParseError variant so `describe` can point at the
-// exact segment and show what was seen.
 fn parse_numeric_segment(field: String, raw: String) -> Result<NumericSegment, ParseError> {
     if length(raw) == 0 {
         Err(ParseError.EmptySegment { field = field })
-    } else if length(raw) > 1 && str_starts_with(s = raw, prefix = "0") {
+    } else if length(raw) > 1 && raw.starts_with(value = "0") {
         Err(ParseError.LeadingZeroSegment { field = field, got = raw })
-    } else if !str_is_digits(raw) {
+    } else if !is_ascii_digits(raw) {
         Err(ParseError.NonNumericSegment { field = field, got = raw })
     } else {
-        Ok(str_to_int(raw))
+        parse_int_strict(field = field, raw = raw)
+    }
+}
+
+fn parse_prerelease_id(seg: String) -> Result<PrereleaseId, ParseError> {
+    if length(seg) == 0 {
+        Err(ParseError.EmptyPrereleaseSegment)
+    } else if is_ascii_digits(seg) {
+        if length(seg) > 1 && seg.starts_with(value = "0") {
+            Err(ParseError.LeadingZeroPrereleaseSegment { segment = seg })
+        } else {
+            match int32.parse(s = seg) {
+                Ok(n)  => Ok(PrereleaseId.Numeric { value = n }),
+                Err(_) => Err(ParseError.BclParseFailure { field = "prerelease", got = seg }),
+            }
+        }
+    } else if is_alnum_dash(seg) {
+        Ok(PrereleaseId.Alphanumeric { text = seg })
+    } else {
+        Err(ParseError.InvalidPrereleaseChar { segment = seg })
+    }
+}
+
+fn parse_build_segment(seg: String) -> Result<String, ParseError> {
+    if length(seg) == 0 {
+        Err(ParseError.EmptyBuildSegment)
+    } else if is_alnum_dash(seg) {
+        Ok(seg)
+    } else {
+        Err(ParseError.InvalidBuildChar { segment = seg })
+    }
+}
+
+fn parse_prerelease_part(present: Bool, raw: String) -> Result<List<PrereleaseId>, ParseError> {
+    if !present {
+        Ok(List.empty())
+    } else if length(raw) == 0 {
+        Err(ParseError.EmptyPrerelease)
+    } else {
+        let segments: List<String> = raw.split(sep = ".")
+        segments |>? try_map(parse_prerelease_id) |> Ok
+    }
+}
+
+fn parse_build_part(present: Bool, raw: String) -> Result<List<String>, ParseError> {
+    if !present {
+        Ok(List.empty())
+    } else if length(raw) == 0 {
+        Err(ParseError.EmptyBuild)
+    } else {
+        let segments: List<String> = raw.split(sep = ".")
+        segments |>? try_map(parse_build_segment) |> Ok
     }
 }
 
@@ -55,29 +219,74 @@ fn parse(input: String) -> Result<Version, ParseError> {
     if length(input) == 0 {
         Err(ParseError.Empty)
     } else {
-        let segments: List<String> = str_split(s = input, sep = ".")
-        let count: Int = size(segments)
-        if count < 3 {
+        // Split off build metadata at the first `+`. Everything to the
+        // right of `+` is opaque alphanumeric build data; dashes inside
+        // it stay there and don't get re-parsed as prerelease markers.
+        let plus_idx: Int = input.index_of_string(value = "+")
+        let has_build: Bool = plus_idx >= 0
+        let core_and_pre: String = if has_build {
+            substr(s = input, start = 0, end = plus_idx)
+        } else { input }
+        let build_raw: String = if has_build {
+            substr(s = input, start = plus_idx + 1, end = length(input))
+        } else { "" }
+
+        // Now split prerelease at the first `-` in what remains. The
+        // numeric core never contains `-`, so the first `-` (if any) is
+        // unambiguously the prerelease marker.
+        let dash_idx: Int = core_and_pre.index_of_string(value = "-")
+        let has_prerelease: Bool = dash_idx >= 0
+        let core_raw: String = if has_prerelease {
+            substr(s = core_and_pre, start = 0, end = dash_idx)
+        } else { core_and_pre }
+        let pre_raw: String = if has_prerelease {
+            substr(s = core_and_pre, start = dash_idx + 1, end = length(core_and_pre))
+        } else { "" }
+
+        if length(core_raw) == 0 {
+            Err(ParseError.Empty)
+        } else {
+            let segments: List<String> = core_raw.split(sep = ".")
+            let count: Int = size(segments)
             if count < 2 {
                 Err(ParseError.MissingMinor)
-            } else {
+            } else if count < 3 {
                 Err(ParseError.MissingPatch)
+            } else if count > 3 {
+                Err(ParseError.TooManySegments { got = count })
+            } else {
+                let major: NumericSegment = parse_numeric_segment(field = "major", raw = segments.at(index = 0))?
+                let minor: NumericSegment = parse_numeric_segment(field = "minor", raw = segments.at(index = 1))?
+                let patch: NumericSegment = parse_numeric_segment(field = "patch", raw = segments.at(index = 2))?
+                let prerelease: List<PrereleaseId> = parse_prerelease_part(present = has_prerelease, raw = pre_raw)?
+                let build: List<String> = parse_build_part(present = has_build, raw = build_raw)?
+                Ok(Version {
+                    major = major,
+                    minor = minor,
+                    patch = patch,
+                    prerelease = prerelease,
+                    build = build,
+                })
             }
-        } else if count > 3 {
-            Err(ParseError.TooManySegments { got = count })
-        } else {
-            let major: NumericSegment = parse_numeric_segment(field = "major", raw = list_at(list = segments, index = 0))?
-            let minor: NumericSegment = parse_numeric_segment(field = "minor", raw = list_at(list = segments, index = 1))?
-            let patch: NumericSegment = parse_numeric_segment(field = "patch", raw = list_at(list = segments, index = 2))?
-            Ok(Version { major = major, minor = minor, patch = patch })
         }
     }
 }
 
 // ---------------------------------------------------------------- rendering
 
+fn pre_id_to_str(id: PrereleaseId) -> String {
+    match id {
+        PrereleaseId.Numeric { value = n } => "${n}",
+        PrereleaseId.Alphanumeric { text = t } => t,
+    }
+}
+
 fn display(v: Version) -> String {
-    "${int_to_str(v.major)}.${int_to_str(v.minor)}.${int_to_str(v.patch)}"
+    let core: String = "${v.major}.${v.minor}.${v.patch}"
+    let pre_strs: List<String> = v.prerelease |> map(pre_id_to_str)
+    let pre: String = if size(pre_strs) == 0 { "" } else { "-${pre_strs.join(sep = ".")}" }
+    let bld: String = if size(v.build) == 0 { "" } else { "+${v.build.join(sep = ".")}" }
+    "${core}${pre}${bld}"
 }
 
 // ---------------------------------------------------------------- errors
@@ -91,37 +300,181 @@ fn describe(e: ParseError) -> String {
         ParseError.MissingPatch =>
             "version is missing the patch segment (expected `major.minor.patch`)",
         ParseError.TooManySegments { got = n } =>
-            "version has ${int_to_str(n)} dot-separated segments; SemVer allows exactly three (major.minor.patch)",
+            "numeric core has ${n} dot-separated segments; SemVer allows exactly three (major.minor.patch)",
         ParseError.NonNumericSegment { field = f, got = g } =>
             "${f} segment '${g}' is not a non-negative integer",
         ParseError.LeadingZeroSegment { field = f, got = g } =>
             "${f} segment '${g}' has a leading zero; SemVer numeric segments must not be zero-padded",
         ParseError.EmptySegment { field = f } =>
             "${f} segment is empty",
+        ParseError.EmptyPrerelease =>
+            "prerelease marker '-' was given but no identifiers followed it",
+        ParseError.EmptyPrereleaseSegment =>
+            "prerelease has an empty dot-separated segment",
+        ParseError.InvalidPrereleaseChar { segment = s } =>
+            "prerelease segment '${s}' contains characters outside [0-9A-Za-z-]",
+        ParseError.LeadingZeroPrereleaseSegment { segment = s } =>
+            "numeric prerelease segment '${s}' has a leading zero; SemVer forbids zero-padded numeric identifiers",
+        ParseError.EmptyBuild =>
+            "build-metadata marker '+' was given but no identifiers followed it",
+        ParseError.EmptyBuildSegment =>
+            "build metadata has an empty dot-separated segment",
+        ParseError.InvalidBuildChar { segment = s } =>
+            "build-metadata segment '${s}' contains characters outside [0-9A-Za-z-]",
+        ParseError.BclParseFailure { field = f, got = g } =>
+            "${f} segment '${g}' could not be parsed as a 32-bit integer (likely overflow)",
     }
 }
 
-// ---------------------------------------------------------------- stdlib gaps
+// ---------------------------------------------------------------- comparison
 
-// The Overt stdlib doesn't yet ship these helpers for String and
-// List<T>. Implemented here as externs bound to a small internal
-// helper class; when Overt stdlib catches up, these lines collapse.
-// `length` and `size` come from the Overt prelude; not externed here.
+// Three-way numeric compare. Avoids a sign-of-difference idiom (which
+// would overflow for very-far-apart inputs) by branching directly.
+fn compare_int(a: Int, b: Int) -> Ordering {
+    if a < b { Ordering.Less }
+    else if a > b { Ordering.Greater }
+    else { Ordering.Equal }
+}
 
-extern "csharp" fn str_starts_with(s: String, prefix: String) -> Bool
-    binds "ParksComputing.SemVer.Strings.StartsWith"
+// ASCII / ordinal string compare. Routes through the BCL's
+// CompareOrdinal so the comparison is byte-stable across cultures —
+// SemVer prerelease identifiers are pure ASCII anyway, but the
+// ordinal path is the contract we want exposed.
+fn compare_strings(a: String, b: String) -> Ordering {
+    let n: Int = str.compare_ordinal_string_string(str_a = a, str_b = b)
+    compare_int(a = n, b = 0)
+}
 
-extern "csharp" fn str_is_digits(s: String) -> Bool
-    binds "ParksComputing.SemVer.Strings.IsDigits"
+// Single prerelease identifier compare. Per the SemVer 2.0 spec:
+//   * Numeric < Alphanumeric (regardless of digit / letter content).
+//   * Numeric vs Numeric: numeric compare.
+//   * Alphanumeric vs Alphanumeric: ASCII lexicographic.
+fn compare_pre_id(a: PrereleaseId, b: PrereleaseId) -> Ordering {
+    match a {
+        PrereleaseId.Numeric { value = x } => match b {
+            PrereleaseId.Numeric      { value = y } => compare_int(a = x, b = y),
+            PrereleaseId.Alphanumeric { text  = _ } => Ordering.Less,
+        },
+        PrereleaseId.Alphanumeric { text = x } => match b {
+            PrereleaseId.Numeric      { value = _ } => Ordering.Greater,
+            PrereleaseId.Alphanumeric { text  = y } => compare_strings(a = x, b = y),
+        },
+    }
+}
 
-extern "csharp" fn str_to_int(s: String) -> Int
-    binds "ParksComputing.SemVer.Strings.ToInt"
+// Walk two prerelease lists in lockstep. The first non-equal slot
+// decides the ordering; if one list is a strict prefix of the other,
+// the shorter is the lower (per the spec: "A larger set of pre-release
+// fields has a higher precedence than a smaller set").
+fn compare_pre_lists_at(a: List<PrereleaseId>, b: List<PrereleaseId>, i: Int) -> Ordering {
+    let n_a: Int = size(a)
+    let n_b: Int = size(b)
+    if i >= n_a && i >= n_b {
+        Ordering.Equal
+    } else if i >= n_a {
+        Ordering.Less
+    } else if i >= n_b {
+        Ordering.Greater
+    } else {
+        let r: Ordering = compare_pre_id(
+            a = a.at(index = i),
+            b = b.at(index = i))
+        match r {
+            Ordering.Equal   => compare_pre_lists_at(a = a, b = b, i = i + 1),
+            Ordering.Less    => Ordering.Less,
+            Ordering.Greater => Ordering.Greater,
+        }
+    }
+}
 
-extern "csharp" fn str_split(s: String, sep: String) -> List<String>
-    binds "ParksComputing.SemVer.Strings.Split"
+// Top-level prerelease compare with the spec's "no-prerelease > has-
+// prerelease" rule baked in: 1.0.0 > 1.0.0-anything.
+fn compare_prerelease(a: List<PrereleaseId>, b: List<PrereleaseId>) -> Ordering {
+    let a_has: Bool = size(a) > 0
+    let b_has: Bool = size(b) > 0
+    if !a_has && !b_has {
+        Ordering.Equal
+    } else if !a_has {
+        Ordering.Greater
+    } else if !b_has {
+        Ordering.Less
+    } else {
+        compare_pre_lists_at(a = a, b = b, i = 0)
+    }
+}
 
-extern "csharp" fn int_to_str(n: Int) -> String
-    binds "ParksComputing.SemVer.Strings.IntToStr"
+// SemVer 2.0 precedence. Major then minor then patch numerically; if
+// all three match, prerelease decides; build metadata is ignored
+// entirely (per spec). The if-chain keeps the structure flat rather
+// than nesting matches that don't bind their non-Equal fall-throughs.
+fn compare(a: Version, b: Version) -> Ordering {
+    if a.major != b.major {
+        compare_int(a = a.major, b = b.major)
+    } else if a.minor != b.minor {
+        compare_int(a = a.minor, b = b.minor)
+    } else if a.patch != b.patch {
+        compare_int(a = a.patch, b = b.patch)
+    } else {
+        compare_prerelease(a = a.prerelease, b = b.prerelease)
+    }
+}
 
-extern "csharp" fn list_at(list: List<String>, index: Int) -> String
-    binds "ParksComputing.SemVer.Strings.ListAt"
+// Convenience predicates layered on `compare`. They make call sites
+// read more directly than match-on-Ordering, at the cost of two extra
+// names. Equality compares precedence — so build metadata differences
+// are equal under `equal_to`, matching the spec's precedence rule.
+// Strict structural equality (including build) belongs at a different
+// API name if/when it's needed.
+
+fn less_than(a: Version, b: Version) -> Bool {
+    match compare(a = a, b = b) {
+        Ordering.Less    => true,
+        Ordering.Equal   => false,
+        Ordering.Greater => false,
+    }
+}
+
+fn equal_to(a: Version, b: Version) -> Bool {
+    match compare(a = a, b = b) {
+        Ordering.Equal   => true,
+        Ordering.Less    => false,
+        Ordering.Greater => false,
+    }
+}
+
+// ---------------------------------------------------------------- bump
+
+// Bump operations always reset prerelease and build to empty: a bumped
+// version is a new release, not a continuation of the predecessor's
+// prerelease lineage. Callers wanting a prerelease on top of a bump
+// can construct it directly via the Version record.
+
+fn bump_major(v: Version) -> Version {
+    Version {
+        major      = v.major + 1,
+        minor      = 0,
+        patch      = 0,
+        prerelease = List.empty(),
+        build      = List.empty(),
+    }
+}
+
+fn bump_minor(v: Version) -> Version {
+    Version {
+        major      = v.major,
+        minor      = v.minor + 1,
+        patch      = 0,
+        prerelease = List.empty(),
+        build      = List.empty(),
+    }
+}
+
+fn bump_patch(v: Version) -> Version {
+    Version {
+        major      = v.major,
+        minor      = v.minor,
+        patch      = v.patch + 1,
+        prerelease = List.empty(),
+        build      = List.empty(),
+    }
+}

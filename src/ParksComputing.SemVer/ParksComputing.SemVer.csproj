@@ -2,10 +2,9 @@
 
   <!--
     Library implementation for ParksComputing.SemVer. The parser,
-    comparator, and renderer are written in Overt (SemVer.ov); this
-    csproj pulls in Overt.Build via PackageReference so `dotnet build`
-    transpiles Overt to C# before Csc runs, alongside any .cs files
-    in this project.
+    comparator, bumper, and renderer are written in Overt (SemVer.ov);
+    this csproj pulls in Overt.Build via PackageReference so `dotnet
+    build` transpiles Overt to C# before Csc runs.
   -->
 
   <PropertyGroup>
@@ -19,13 +18,20 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageId>ParksComputing.SemVer</PackageId>
-    <Description>SemVer 2.0.0 parser, comparator, and renderer. Typed errors, refinement-typed numeric segments, exhaustive match on prerelease-identifier kinds. Implemented in Overt.</Description>
+    <Description>SemVer 2.0.0 parser, comparator, bumper, and renderer. Typed errors, refinement-typed numeric segments, exhaustive match on prerelease-identifier kinds. Implemented in Overt; transpiled to C# at build time.</Description>
     <PackageTags>semver;version;parser;overt</PackageTags>
     <PackageProjectUrl>https://github.com/paulmooreparks/SemVerKit</PackageProjectUrl>
     <RepositoryUrl>https://github.com/paulmooreparks/SemVerKit</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Repo-root README rides along as the package readme so the
+         nuget.org listing has full install + usage docs. -->
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- The floating version range pulls the latest dev build while Overt
