@@ -195,7 +195,7 @@ fn parse_build_segment(seg: String) -> Result<String, ParseError> {
 
 fn parse_prerelease_part(present: Bool, raw: String) -> Result<List<PrereleaseId>, ParseError> {
     if !present {
-        Ok(List.empty())
+        Ok(List<PrereleaseId>.empty())
     } else if length(raw) == 0 {
         Err(ParseError.EmptyPrerelease)
     } else {
@@ -206,7 +206,7 @@ fn parse_prerelease_part(present: Bool, raw: String) -> Result<List<PrereleaseId
 
 fn parse_build_part(present: Bool, raw: String) -> Result<List<String>, ParseError> {
     if !present {
-        Ok(List.empty())
+        Ok(List<String>.empty())
     } else if length(raw) == 0 {
         Err(ParseError.EmptyBuild)
     } else {
@@ -454,8 +454,8 @@ fn bump_major(v: Version) -> Version {
         major      = v.major + 1,
         minor      = 0,
         patch      = 0,
-        prerelease = List.empty(),
-        build      = List.empty(),
+        prerelease = List<PrereleaseId>.empty(),
+        build      = List<String>.empty(),
     }
 }
 
@@ -464,8 +464,8 @@ fn bump_minor(v: Version) -> Version {
         major      = v.major,
         minor      = v.minor + 1,
         patch      = 0,
-        prerelease = List.empty(),
-        build      = List.empty(),
+        prerelease = List<PrereleaseId>.empty(),
+        build      = List<String>.empty(),
     }
 }
 
@@ -474,7 +474,7 @@ fn bump_patch(v: Version) -> Version {
         major      = v.major,
         minor      = v.minor,
         patch      = v.patch + 1,
-        prerelease = List.empty(),
-        build      = List.empty(),
+        prerelease = List<PrereleaseId>.empty(),
+        build      = List<String>.empty(),
     }
 }
